@@ -310,7 +310,7 @@ begin
   ZeroMemory(@ConnectOverlapped, SizeOf(TOverlapped));
   ConnectOverlapped.hEvent := FEvent;
   PendingIO := CreatePipeInstance(NewPipeHandle, ConnectOverlapped);
-
+  try
   while FActive do
     begin
       Index := WaitForSingleObjectEx(FEvent, 100, True);
@@ -337,6 +337,9 @@ begin
           end;
       end;
     end;
+  finally
+    CloseHandle(NewPipeHandle);
+  end;
 end;
 
 function TFWPipeServer.GetActive: Boolean;
