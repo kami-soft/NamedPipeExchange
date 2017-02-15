@@ -128,7 +128,7 @@ type
 
 implementation
 
-function Max(Value1, Value2: integer): integer;
+function Max(Value1, Value2: integer): integer; inline;
 begin
   if Value1 > Value2 then
     Result := Value1
@@ -136,7 +136,7 @@ begin
     Result := Value2;
 end;
 
-function Min(Value1, Value2: integer): integer;
+function Min(Value1, Value2: integer): integer; inline;
 begin
   if Value1 < Value2 then
     Result := Value1
