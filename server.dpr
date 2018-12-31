@@ -20,11 +20,6 @@ program server;
 {$APPTYPE CONSOLE}
 
 uses
-  madExcept,
-  madLinkDisAsm,
-  madListHardware,
-  madListProcesses,
-  madListModules,
   Windows,
   FWIOCompletionPipes,
   SysUtils;

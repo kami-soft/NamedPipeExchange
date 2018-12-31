@@ -1,19 +1,19 @@
 unit uNamedPipesExchange;
 /// <summary>
 /// wrappers for FWIOCompletionPipes (by Rouse)
-///  Allows send and receive data with MaxSize = High(integer)
-///  instead of source classes with max packet size = MAXWORD
+/// Allows send and receive data with MaxSize = High(integer)
+/// instead of source classes with max packet size = MAXWORD
 ///
-///  Client works in blocking mode, i.e. after excecuting SendData method
-///  you receive ALL data in ReceiveStream parameter
+/// Client works in blocking mode, i.e. after excecuting SendData method
+/// you receive ALL data in ReceiveStream parameter
 ///
-///  Server works in blocking mode, i.e. after you set Server.Active:=True
-///  server entered in loop and exit from from it to next line of your code
-///  only after you set Active:=False
-///  For this (deactivate server) use any server event, for example - OnIdle or OnReadFromPipe
-///  OnReadFromPipe fires only AFTER ALL data received from client.
+/// Server works in blocking mode, i.e. after you set Server.Active:=True
+/// server entered in loop and exit from from it to next line of your code
+/// only after you set Active:=False
+/// For this (deactivate server) use any server event, for example - OnIdle or OnReadFromPipe
+/// OnReadFromPipe fires only AFTER ALL data received from client.
 ///
-///  You can use this code without any limitations.
+/// You can use this code without any limitations.
 /// </summary>
 
 /// <author>kami, 2016. kami-soft@yandex.ru, https://github.com/kami-soft</author>
@@ -37,8 +37,7 @@ type
   end;
 
   TConnectEvent = procedure(Sender: TObject; PipeHandle: THandle) of object;
-  TExchangeEvent = procedure(Sender: TObject; PipeHandle: THandle; IncommingValue: TStream; OutgoingValue: TStream)
-    of object;
+  TExchangeEvent = procedure(Sender: TObject; PipeHandle: THandle; IncommingValue: TStream; OutgoingValue: TStream) of object;
 
   TAbstractPipeData = class(TObject)
   strict private
@@ -223,10 +222,10 @@ var
   DataBuff: TBytes;
 begin
   if not FIncommingDataDict.TryGetValue(PipeHandle.PipeHandle, IncommingData) then
-  begin
-    IncommingData := TReceivingPipeData.Create;
-    FIncommingDataDict.Add(PipeHandle.PipeHandle, IncommingData);
-  end;
+    begin
+      IncommingData := TReceivingPipeData.Create;
+      FIncommingDataDict.Add(PipeHandle.PipeHandle, IncommingData);
+    end;
   if TReceivingPipeData(IncommingData).IsReceived then
     raise Exception.Create('Previous incomming data is active');
 
@@ -290,10 +289,10 @@ begin
 
   iPos := 0;
   if Header.Command = pcUnknown then
-  begin
-    Header.ReadFromBuf(Buf);
-    iPos := SizeOf(TPipeDataHeader);
-  end;
+    begin
+      Header.ReadFromBuf(Buf);
+      iPos := SizeOf(TPipeDataHeader);
+    end;
 
   if Length(Buf) > iPos then
     DataStream.Write(Buf[iPos], Length(Buf) - iPos);
@@ -338,20 +337,20 @@ var
   iBufSize: integer;
 begin
   if not FIsHeaderSended then
-  begin
-    iBufSize := Min(MaxBufSize, DataStream.Size + SizeOf(TPipeDataHeader));
-    SetLength(Buf, iBufSize);
-    iPos := SizeOf(TPipeDataHeader);
-    FHeader.WriteToBuf(Buf);
-    FIsHeaderSended := True;
-    DataStream.Seek(0, soBeginning);
-  end
+    begin
+      iBufSize := Min(MaxBufSize, DataStream.Size + SizeOf(TPipeDataHeader));
+      SetLength(Buf, iBufSize);
+      iPos := SizeOf(TPipeDataHeader);
+      FHeader.WriteToBuf(Buf);
+      FIsHeaderSended := True;
+      DataStream.Seek(0, soBeginning);
+    end
   else
-  begin
-    iBufSize := Min(MaxBufSize, DataStream.Size - DataStream.Position);
-    SetLength(Buf, iBufSize);
-    iPos := 0;
-  end;
+    begin
+      iBufSize := Min(MaxBufSize, DataStream.Size - DataStream.Position);
+      SetLength(Buf, iBufSize);
+      iPos := 0;
+    end;
   Result := iBufSize;
 
   iBufSize := iBufSize - iPos;
@@ -409,13 +408,13 @@ procedure TPipeClient.SendData(SendStream, ReceiveStream: TStream);
       try
         FClient.SendData(OutStream, InStream);
         if SendPipeData.IsSended then
-        begin
-          InStream.Position := 0;
-          SetLength(Buf, InStream.Size);
-          InStream.Read(Buf[0], Length(Buf));
+          begin
+            InStream.Position := 0;
+            SetLength(Buf, InStream.Size);
+            InStream.Read(Buf[0], Length(Buf));
 
-          ReceivePipeData.WriteData(Buf);
-        end
+            ReceivePipeData.WriteData(Buf);
+          end
         else
           if InStream.Size <> 0 then
             raise EPipeServerException.Create('Server send some data without complete receiving');
@@ -445,16 +444,16 @@ begin
     end;
 
     while not ReceivePipeData.IsReceived do
-    begin
-      SendPipeData := TSendingPipeData.Create;
-      try
-        SendPipeData.PrepareForSend(pcNextDataPart);
+      begin
+        SendPipeData := TSendingPipeData.Create;
+        try
+          SendPipeData.PrepareForSend(pcNextDataPart);
 
-        SendDataPart(SendPipeData, ReceivePipeData);
-      finally
-        SendPipeData.Free;
+          SendDataPart(SendPipeData, ReceivePipeData);
+        finally
+          SendPipeData.Free;
+        end;
       end;
-    end;
 
     ReceiveStream.Size := 0;
     ReceiveStream.CopyFrom(ReceivePipeData.DataStream, 0);

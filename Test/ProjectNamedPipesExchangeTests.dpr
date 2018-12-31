@@ -19,9 +19,9 @@ uses
   TestuNamedPipesExchange in 'TestuNamedPipesExchange.pas',
   uNamedPipesExchange in '..\uNamedPipesExchange.pas';
 
-{R *.RES}
+{ R *.RES }
 
 begin
   DUnitTestRunner.RunRegisteredTests;
-end.
 
+end.

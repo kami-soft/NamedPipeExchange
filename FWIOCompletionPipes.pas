@@ -82,7 +82,7 @@ type
     FEvent: THandle;
     FPipe: THandle;
     FPipeName: string;
-    //FRead: TOnClientReadEvent;
+    // FRead: TOnClientReadEvent;
     FConnect: TNotifyEvent;
     FDisconnect: TNotifyEvent;
     FBuff: array [0 .. MaxBuffSize - 1] of Byte;
@@ -96,7 +96,7 @@ type
     property Active: Boolean read GetActive write SetActive;
     property OnConnect: TNotifyEvent read FConnect write FConnect;
     property OnDisconnect: TNotifyEvent read FDisconnect write FDisconnect;
-    //property OnRead: TOnClientReadEvent read FRead write FRead;
+    // property OnRead: TOnClientReadEvent read FRead write FRead;
   end;
 
 procedure CompletedReadRoutine(dwErr, cbBytesRead: DWORD; lpOverLap: POverlapped); stdcall;
@@ -119,8 +119,7 @@ begin
   AResult := False;
   PipeInstance := PFWPipeData(lpOverLap);
   if (dwErr = 0) and (cbWritten = PipeInstance^.WriteBuffSize) then
-    AResult := ReadFileEx(PipeInstance^.PipeHandle, @PipeInstance^.ReadBuff[0], MaxBuffSize, lpOverLap,
-      @CompletedReadRoutine);
+    AResult := ReadFileEx(PipeInstance^.PipeHandle, @PipeInstance^.ReadBuff[0], MaxBuffSize, lpOverLap, @CompletedReadRoutine);
   if not AResult then
     PipeInstance^.ServerInstance.DoDisconnect(PipeInstance);
 end;
@@ -136,8 +135,7 @@ begin
     begin
       PipeInstance^.ReadBuffSize := cbBytesRead;
       PipeInstance^.ServerInstance.DoRead(PipeInstance);
-      AResult := WriteFileEx(PipeInstance^.PipeHandle, @PipeInstance^.WriteBuff[0], PipeInstance^.WriteBuffSize,
-        lpOverLap^, @CompletedWriteRoutine);
+      AResult := WriteFileEx(PipeInstance^.PipeHandle, @PipeInstance^.WriteBuff[0], PipeInstance^.WriteBuffSize, lpOverLap^, @CompletedWriteRoutine);
     end;
   if not AResult then
     PipeInstance^.ServerInstance.DoDisconnect(PipeInstance);
@@ -147,32 +145,32 @@ end;
 
 type
   PACE_HEADER = ^ACE_HEADER;
-{$EXTERNALSYM PACE_HEADER}
+  {$EXTERNALSYM PACE_HEADER}
 
   _ACE_HEADER = record
     AceType: Byte;
     AceFlags: Byte;
     AceSize: Word;
   end;
-{$EXTERNALSYM _ACE_HEADER}
+  {$EXTERNALSYM _ACE_HEADER}
 
   ACE_HEADER = _ACE_HEADER;
-{$EXTERNALSYM ACE_HEADER}
+  {$EXTERNALSYM ACE_HEADER}
   TAceHeader = ACE_HEADER;
   PAceHeader = PACE_HEADER;
 
   PACCESS_ALLOWED_ACE = ^ACCESS_ALLOWED_ACE;
-{$EXTERNALSYM PACCESS_ALLOWED_ACE}
+  {$EXTERNALSYM PACCESS_ALLOWED_ACE}
 
   _ACCESS_ALLOWED_ACE = record
     Header: ACE_HEADER;
     Mask: ACCESS_MASK;
     SidStart: DWORD;
   end;
-{$EXTERNALSYM _ACCESS_ALLOWED_ACE}
+  {$EXTERNALSYM _ACCESS_ALLOWED_ACE}
 
   ACCESS_ALLOWED_ACE = _ACCESS_ALLOWED_ACE;
-{$EXTERNALSYM ACCESS_ALLOWED_ACE}
+  {$EXTERNALSYM ACCESS_ALLOWED_ACE}
   TAccessAllowedAce = ACCESS_ALLOWED_ACE;
   PAccessAllowedAce = PACCESS_ALLOWED_ACE;
 
@@ -213,9 +211,8 @@ begin
         Attributes.lpSecurityDescriptor := @Descriptor;
         Attributes.bInheritHandle := False;
 
-        NewPipeHandle := CreateNamedPipe(PChar('\\.\pipe\' + FPipeName), PIPE_ACCESS_DUPLEX or FILE_FLAG_OVERLAPPED,
-          PIPE_TYPE_MESSAGE or PIPE_READMODE_MESSAGE or PIPE_WAIT, PIPE_UNLIMITED_INSTANCES, MaxBuffSize, MaxBuffSize,
-          NMPWAIT_WAIT_FOREVER, @Attributes);
+        NewPipeHandle := CreateNamedPipe(PChar('\\.\pipe\' + FPipeName), PIPE_ACCESS_DUPLEX or FILE_FLAG_OVERLAPPED, PIPE_TYPE_MESSAGE or PIPE_READMODE_MESSAGE or PIPE_WAIT,
+          PIPE_UNLIMITED_INSTANCES, MaxBuffSize, MaxBuffSize, NMPWAIT_WAIT_FOREVER, @Attributes);
 
         if NewPipeHandle = INVALID_HANDLE_VALUE then
           RaiseLastOSError
@@ -247,7 +244,7 @@ begin
         CloseHandle(NewPipeHandle);
         NewPipeHandle := INVALID_HANDLE_VALUE;
       end;
-    raise ;
+    raise;
   end;
 end;
 
@@ -311,32 +308,32 @@ begin
   ConnectOverlapped.hEvent := FEvent;
   PendingIO := CreatePipeInstance(NewPipeHandle, ConnectOverlapped);
   try
-  while FActive do
-    begin
-      Index := WaitForSingleObjectEx(FEvent, 100, True);
-      case Index of
-        WAIT_FAILED:
-          RaiseLastOSError;
-        WAIT_TIMEOUT:
-          begin
-            DoIdle;
+    while FActive do
+      begin
+        Index := WaitForSingleObjectEx(FEvent, 100, True);
+        case Index of
+          WAIT_FAILED:
+            RaiseLastOSError;
+          WAIT_TIMEOUT:
+            begin
+              DoIdle;
+              Continue;
+            end;
+          WAIT_IO_COMPLETION:
             Continue;
-          end;
-        WAIT_IO_COMPLETION:
-          Continue;
-        WAIT_OBJECT_0:
-          begin
-            if PendingIO then
-              begin
-                if not GetOverlappedResult(NewPipeHandle, ConnectOverlapped, lpNumberOfBytesTransferred, False) then
-                  RaiseLastOSError
-                else
-                  DoConnect(NewPipeHandle);
-              end;
-            PendingIO := CreatePipeInstance(NewPipeHandle, ConnectOverlapped);
-          end;
+          WAIT_OBJECT_0:
+            begin
+              if PendingIO then
+                begin
+                  if not GetOverlappedResult(NewPipeHandle, ConnectOverlapped, lpNumberOfBytesTransferred, False) then
+                    RaiseLastOSError
+                  else
+                    DoConnect(NewPipeHandle);
+                end;
+              PendingIO := CreatePipeInstance(NewPipeHandle, ConnectOverlapped);
+            end;
+        end;
       end;
-    end;
   finally
     CloseHandle(NewPipeHandle);
   end;
@@ -441,7 +438,7 @@ begin
         SetLastError(LastError);
         RaiseLastOSError;
       end;
-      if not WaitNamedPipe(PChar(FPipeName), 10000{NMPWAIT_WAIT_FOREVER}) then
+      if not WaitNamedPipe(PChar(FPipeName), 10000 { NMPWAIT_WAIT_FOREVER } ) then
         begin
           LastError := GetLastError;
           Active := False;

@@ -23,12 +23,7 @@ program client;
 {$APPTYPE CONSOLE}
 
 uses
-   madExcept,
-  madLinkDisAsm,
-  madListHardware,
-  madListProcesses,
-  madListModules,
- Windows,
+  Windows,
   FWIOCompletionPipes,
   Classes,
   SysUtils;
