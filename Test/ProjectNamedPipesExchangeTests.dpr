@@ -15,9 +15,16 @@ program ProjectNamedPipesExchangeTests;
 {$ENDIF}
 
 uses
+  madExcept,
+  madLinkDisAsm,
+  madListHardware,
+  madListProcesses,
+  madListModules,
   DUnitTestRunner,
   TestuNamedPipesExchange in 'TestuNamedPipesExchange.pas',
-  uNamedPipesExchange in '..\uNamedPipesExchange.pas';
+  uNamedPipesExchange in '..\uNamedPipesExchange.pas',
+  TestNamedPipes in 'TestNamedPipes.pas',
+  NamedPipes.Async in '..\NamedPipes.Async.pas';
 
 { R *.RES }
 
