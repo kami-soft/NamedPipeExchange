@@ -30,6 +30,8 @@ type
 
     function GetPipeName: string;
     function GetServerName: string;
+
+    function IntWriteMessage(Command: Integer; OutStream: TOutPacketStream): Boolean;
   public
     constructor Create(const ServerName, PipeName: string);
     destructor Destroy; override;
@@ -71,6 +73,8 @@ type
     procedure OnPipeConnect(Sender: TObject; Pipe: HPIPE);
     procedure OnPipeDisconnect(Sender: TObject; Pipe: HPIPE);
     procedure OnReadFromPipe(Sender: TObject; Pipe: HPIPE; Stream: TStream);
+
+    function IntWriteMessage(Client: HPIPE; Command: Integer; OutStream: TOutPacketStream): Boolean;
   private
     function GetPipeName: string;
     procedure SetPipeName(const Value: string);
@@ -102,7 +106,8 @@ type
 implementation
 
 uses
-  System.StrUtils;
+  System.StrUtils,
+  System.Math;
 
 const
   cDefaultPipeName = 'TestPipe';
@@ -209,29 +214,17 @@ end;
 function TNamedPipeClient.WriteMessage(Command: Integer; Stream: TStream): Boolean;
 var
   WriteStream: TOutPacketStream;
-  Bytes: TBytes;
-  tmpHeader: TPacketHeader;
 begin
   Result := False;
 
   if not Connect then
     exit;
 
-  if Stream.Size = 0 then
-    exit;
-
   WriteStream := TOutPacketStream.Create;
   try
-    tmpHeader := WriteStream.PacketHeader;
-    tmpHeader.Command := Command;
-    WriteStream.PacketHeader := tmpHeader;
-
-    WriteStream.CopyFrom(Stream, 0);
-    WriteStream.FillHeader;
-
-    SetLength(Bytes, WriteStream.Size);
-    WriteStream.Read(Bytes, 0, WriteStream.Size);
-    Result := FPipeClient.Write(Bytes[0], Length(Bytes));
+    if Assigned(Stream) then
+      WriteStream.CopyFrom(Stream, 0);
+    Result := IntWriteMessage(Command, WriteStream);
   finally
     WriteStream.Free;
   end;
@@ -240,30 +233,17 @@ end;
 function TNamedPipeClient.WriteMessage(Command: Integer; const ABytes: TBytes): Boolean;
 var
   WriteStream: TOutPacketStream;
-  Bytes: TBytes;
-  tmpHeader: TPacketHeader;
 begin
   Result := False;
 
   if not Connect then
     exit;
 
-  if Length(ABytes) = 0 then
-    exit;
-
   WriteStream := TOutPacketStream.Create;
   try
-    tmpHeader := WriteStream.PacketHeader;
-    tmpHeader.Command := Command;
-    WriteStream.PacketHeader := tmpHeader;
-
-    WriteStream.Write(ABytes, 0, Length(ABytes));
-
-    WriteStream.FillHeader;
-
-    SetLength(Bytes, WriteStream.Size);
-    WriteStream.Read(Bytes, 0, WriteStream.Size);
-    Result := FPipeClient.Write(Bytes[0], Length(Bytes));
+    if Length(ABytes) <> 0 then
+      WriteStream.Write(ABytes, 0, Length(ABytes));
+    Result := IntWriteMessage(Command, WriteStream);
   finally
     WriteStream.Free;
   end;
@@ -272,6 +252,32 @@ end;
 function TNamedPipeClient.WriteMessage(Command: Integer; const Msg: string): Boolean;
 begin
   Result := WriteMessage(Command, TEncoding.UTF8.GetBytes(Msg));
+end;
+
+function TNamedPipeClient.IntWriteMessage(Command: Integer; OutStream: TOutPacketStream): Boolean;
+var
+  Bytes: TBytes;
+  tmpHeader: TPacketHeader;
+begin
+  Result := False;
+
+  if not Connect then
+    exit;
+
+  tmpHeader := OutStream.PacketHeader;
+  tmpHeader.Command := Command;
+  OutStream.PacketHeader := tmpHeader;
+
+  OutStream.FillHeader;
+
+  while OutStream.Position < OutStream.Size do
+    begin
+      SetLength(Bytes, Min(OutStream.Size - OutStream.Position, MAX_BUFFER));
+      OutStream.Read(Bytes, 0, Length(Bytes));
+      Result := FPipeClient.Write(Bytes[0], Length(Bytes));
+      if not Result then
+        Break;
+    end;
 end;
 
 { TNamedPipeServer }
@@ -309,6 +315,29 @@ begin
   if not Assigned(FInstance) then
     FInstance := Self.Create(cDefaultPipeName);
   Result := FInstance;
+end;
+
+function TNamedPipeServer.IntWriteMessage(Client: HPIPE; Command: Integer; OutStream: TOutPacketStream): Boolean;
+var
+  Bytes: TBytes;
+  tmpHeader: TPacketHeader;
+begin
+  Result := False;
+
+  tmpHeader := OutStream.PacketHeader;
+  tmpHeader.Command := Command;
+  OutStream.PacketHeader := tmpHeader;
+
+  OutStream.FillHeader;
+
+  while OutStream.Position < OutStream.Size do
+    begin
+      SetLength(Bytes, Min(OutStream.Size - OutStream.Position, MAX_BUFFER));
+      OutStream.Read(Bytes, 0, Length(Bytes));
+      Result := FServer.Write(Client, Bytes[0], Length(Bytes));
+      if not Result then
+        Break;
+    end;
 end;
 
 procedure TNamedPipeServer.OnPipeConnect(Sender: TObject; Pipe: HPIPE);
@@ -379,29 +408,17 @@ end;
 function TNamedPipeServer.WriteMessage(Client: HPIPE; Command: Integer; Stream: TStream): Boolean;
 var
   WriteStream: TOutPacketStream;
-  Bytes: TBytes;
-  tmpHeader: TPacketHeader;
 begin
   Result := False;
 
   if not FClients.ContainsKey(Client) then
     exit;
 
-  if Stream.Size = 0 then
-    exit;
-
   WriteStream := TOutPacketStream.Create;
   try
-    tmpHeader := WriteStream.PacketHeader;
-    tmpHeader.Command := Command;
-    WriteStream.PacketHeader := tmpHeader;
-
-    WriteStream.CopyFrom(Stream, 0);
-    WriteStream.FillHeader;
-
-    SetLength(Bytes, WriteStream.Size);
-    WriteStream.Read(Bytes, 0, WriteStream.Size);
-    Result := FServer.Write(Client, Bytes[0], Length(Bytes));
+    if Assigned(Stream) then
+      WriteStream.CopyFrom(Stream, 0);
+    Result := IntWriteMessage(Client, Command, WriteStream);
   finally
     WriteStream.Free;
   end;
@@ -410,30 +427,16 @@ end;
 function TNamedPipeServer.WriteMessage(Client: HPIPE; Command: Integer; const ABytes: TBytes): Boolean;
 var
   WriteStream: TOutPacketStream;
-  Bytes: TBytes;
-  tmpHeader: TPacketHeader;
 begin
   Result := False;
 
   if not FClients.ContainsKey(Client) then
     exit;
 
-  if Length(ABytes) = 0 then
-    exit;
-
   WriteStream := TOutPacketStream.Create;
   try
-    tmpHeader := WriteStream.PacketHeader;
-    tmpHeader.Command := Command;
-    WriteStream.PacketHeader := tmpHeader;
-
     WriteStream.Write(ABytes, 0, Length(ABytes));
-
-    WriteStream.FillHeader;
-
-    SetLength(Bytes, WriteStream.Size);
-    WriteStream.Read(Bytes, 0, WriteStream.Size);
-    Result := FServer.Write(Client, Bytes[0], Length(Bytes));
+    Result := IntWriteMessage(Client, Command, WriteStream);
   finally
     WriteStream.Free;
   end;
@@ -446,59 +449,24 @@ end;
 
 function TNamedPipeServer.BroadcastMessage(Command: Integer; Stream: TStream): Boolean;
 var
-  WriteStream: TOutPacketStream;
-  Bytes: TBytes;
-  tmpHeader: TPacketHeader;
+  i: Integer;
 begin
-  Result := False;
+  Result := True;
 
-  if Stream.Size = 0 then
-    exit;
-
-  WriteStream := TOutPacketStream.Create;
-  try
-    tmpHeader := WriteStream.PacketHeader;
-    tmpHeader.Command := Command;
-    WriteStream.PacketHeader := tmpHeader;
-
-    WriteStream.CopyFrom(Stream, 0);
-    WriteStream.FillHeader;
-
-    SetLength(Bytes, WriteStream.Size);
-    WriteStream.Read(Bytes, 0, WriteStream.Size);
-    Result := FServer.Broadcast(Bytes[0], Length(Bytes));
-  finally
-    WriteStream.Free;
-  end;
+  for i := FServer.ClientCount - 1 downto 0 do
+    if not WriteMessage(FServer.Clients[i], Command, Stream) then
+      Result := False;
 end;
 
 function TNamedPipeServer.BroadcastMessage(Command: Integer; const ABytes: TBytes): Boolean;
 var
-  WriteStream: TOutPacketStream;
-  Bytes: TBytes;
-  tmpHeader: TPacketHeader;
+  i: Integer;
 begin
-  Result := False;
+  Result := True;
 
-  if Length(ABytes) = 0 then
-    exit;
-
-  WriteStream := TOutPacketStream.Create;
-  try
-    tmpHeader := WriteStream.PacketHeader;
-    tmpHeader.Command := Command;
-    WriteStream.PacketHeader := tmpHeader;
-
-    WriteStream.Write(ABytes, 0, Length(ABytes));
-
-    WriteStream.FillHeader;
-
-    SetLength(Bytes, WriteStream.Size);
-    WriteStream.Read(Bytes, 0, WriteStream.Size);
-    Result := FServer.Broadcast(Bytes[0], Length(Bytes));
-  finally
-    WriteStream.Free;
-  end;
+  for i := FServer.ClientCount - 1 downto 0 do
+    if not WriteMessage(FServer.Clients[i], Command, ABytes) then
+      Result := False;
 end;
 
 function TNamedPipeServer.BroadcastMessage(Command: Integer; const Msg: string): Boolean;

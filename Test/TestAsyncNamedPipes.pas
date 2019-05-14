@@ -26,9 +26,14 @@ type
 
   TestTNamedPipeClient = class(TTestCase)
   strict private
-    FReceivedData: TBytes;
-    FReceivedCommand: Integer;
+    FServerReceivedData: TBytes;
+    FServerReceivedCommand: Integer;
+
+    FClientReceivedData: TBytes;
+    FClientReceivedCommand: Integer;
+
     procedure OnServerRead(Sender: TObject; Pipe: HPIPE; Command: Integer; Data: TStream);
+    procedure OnClientRead(Sender: TObject; Pipe: HPIPE; Command: Integer; Data: TStream);
   public
     procedure SetUp; override;
     procedure TearDown; override;
@@ -38,18 +43,27 @@ type
     procedure TestWriteMessage;
     procedure TestWriteMessage1;
     procedure TestWriteMessage2;
+    procedure TestWriteLongMessage;
     procedure TestInit;
     procedure TestInstance;
   end;
 
 implementation
 
+procedure TestTNamedPipeClient.OnClientRead(Sender: TObject; Pipe: HPIPE; Command: Integer; Data: TStream);
+begin
+  FClientReceivedCommand := Command;
+  Data.Seek(0, soBeginning);
+  SetLength(FClientReceivedData, Data.Size);
+  Data.ReadBuffer(FClientReceivedData, 0, Length(FClientReceivedData));
+end;
+
 procedure TestTNamedPipeClient.OnServerRead(Sender: TObject; Pipe: HPIPE; Command: Integer; Data: TStream);
 begin
-  FReceivedCommand := Command;
+  FServerReceivedCommand := Command;
   Data.Seek(0, soBeginning);
-  SetLength(FReceivedData, Data.Size);
-  Data.ReadBuffer(FReceivedData, 0, Length(FReceivedData));
+  SetLength(FServerReceivedData, Data.Size);
+  Data.ReadBuffer(FServerReceivedData, 0, Length(FServerReceivedData));
 
   TNamedPipeServer.Instance.BroadcastMessage(Command, Data);
 end;
@@ -63,6 +77,7 @@ begin
       TNamedPipeServer.Instance.Active := True;
     end;
   TNamedPipeServer.Instance.OnRead := OnServerRead;
+  TNamedPipeClient.Instance.OnRead := OnClientRead;
 end;
 
 procedure TestTNamedPipeClient.TearDown;
@@ -92,6 +107,38 @@ begin
   CheckTrue(ReturnValue);
 end;
 
+procedure TestTNamedPipeClient.TestWriteLongMessage;
+var
+  ReturnValue: Boolean;
+  Bytes: TBytes;
+  i: Integer;
+begin
+  // TODO: Setup method call parameters
+  FServerReceivedCommand := -1;
+  FClientReceivedCommand := -1;
+  SetLength(Bytes, 65535);
+  for i := 0 to Length(Bytes)-1 do
+    Bytes[i]:=LongRec(i).Bytes[0];
+  ReturnValue := TNamedPipeClient.Instance.WriteMessage(2, Bytes);
+  CheckTrue(ReturnValue);
+
+  // TODO: Validate method results
+  while FServerReceivedCommand = -1 do
+    Application.ProcessMessages;
+  CheckEquals(2, FServerReceivedCommand);
+  CheckEquals(Length(Bytes), Length(FServerReceivedData));
+  for i := 0 to Length(Bytes) - 1 do
+    CheckEquals(Bytes[i], FServerReceivedData[i]);
+
+
+  while FClientReceivedCommand = -1 do
+    Application.ProcessMessages;
+  CheckEquals(2, FClientReceivedCommand);
+  CheckEquals(Length(Bytes), Length(FClientReceivedData));
+  for i := 0 to Length(Bytes) - 1 do
+    CheckEquals(Bytes[i], FClientReceivedData[i]);
+end;
+
 procedure TestTNamedPipeClient.TestWriteMessage;
 var
   ReturnValue: Boolean;
@@ -100,7 +147,8 @@ var
   i: Integer;
 begin
   // TODO: Setup method call parameters
-  FReceivedCommand := -1;
+  FServerReceivedCommand := -1;
+  FClientReceivedCommand := -1;
   Stream := TMemoryStream.Create;
   try
     Buf := [1, 2, 3];
@@ -112,33 +160,50 @@ begin
     Stream.Free;
   end;
   // TODO: Validate method results
-  while FReceivedCommand = -1 do
+  while FServerReceivedCommand = -1 do
     Application.ProcessMessages;
-  CheckEquals(1, FReceivedCommand);
-  CheckEquals(Length(Buf), Length(FReceivedData));
+  CheckEquals(1, FServerReceivedCommand);
+  CheckEquals(Length(Buf), Length(FServerReceivedData));
   for i := 0 to Length(Buf) - 1 do
-    CheckEquals(Buf[i], FReceivedData[i]);
+    CheckEquals(Buf[i], FServerReceivedData[i]);
+
+
+  while FClientReceivedCommand = -1 do
+    Application.ProcessMessages;
+  CheckEquals(1, FClientReceivedCommand);
+  CheckEquals(Length(Buf), Length(FClientReceivedData));
+  for i := 0 to Length(Buf) - 1 do
+    CheckEquals(Buf[i], FClientReceivedData[i]);
 end;
 
 procedure TestTNamedPipeClient.TestWriteMessage1;
 var
   ReturnValue: Boolean;
-  Bytes: TArray<System.Byte>;
+  Bytes: TBytes;
   i: Integer;
 begin
   // TODO: Setup method call parameters
-  FReceivedCommand := -1;
+  FServerReceivedCommand := -1;
+  FClientReceivedCommand := -1;
   Bytes := [8, 9, 3];
   ReturnValue := TNamedPipeClient.Instance.WriteMessage(2, Bytes);
   CheckTrue(ReturnValue);
 
   // TODO: Validate method results
-  while FReceivedCommand = -1 do
+  while FServerReceivedCommand = -1 do
     Application.ProcessMessages;
-  CheckEquals(2, FReceivedCommand);
-  CheckEquals(Length(Bytes), Length(FReceivedData));
+  CheckEquals(2, FServerReceivedCommand);
+  CheckEquals(Length(Bytes), Length(FServerReceivedData));
   for i := 0 to Length(Bytes) - 1 do
-    CheckEquals(Bytes[i], FReceivedData[i]);
+    CheckEquals(Bytes[i], FServerReceivedData[i]);
+
+
+  while FClientReceivedCommand = -1 do
+    Application.ProcessMessages;
+  CheckEquals(2, FClientReceivedCommand);
+  CheckEquals(Length(Bytes), Length(FClientReceivedData));
+  for i := 0 to Length(Bytes) - 1 do
+    CheckEquals(Bytes[i], FClientReceivedData[i]);
 end;
 
 procedure TestTNamedPipeClient.TestWriteMessage2;
@@ -149,7 +214,8 @@ var
   i: Integer;
 begin
   // TODO: Setup method call parameters
-  FReceivedCommand := -1;
+  FServerReceivedCommand := -1;
+  FClientReceivedCommand := -1;
   Msg := 'Это тестовое сообщение (or Test message) #3';
 
   ReturnValue := TNamedPipeClient.Instance.WriteMessage(3, Msg);
@@ -159,12 +225,19 @@ begin
   msgBytes := TEncoding.UTF8.GetBytes(Msg);
 
   // TODO: Validate method results
-  while FReceivedCommand = -1 do
+  while FServerReceivedCommand = -1 do
     Application.ProcessMessages;
-  CheckEquals(3, FReceivedCommand);
-  CheckEquals(Length(msgBytes), Length(FReceivedData));
+  CheckEquals(3, FServerReceivedCommand);
+  CheckEquals(Length(msgBytes), Length(FServerReceivedData));
   for i := 0 to Length(msgBytes) - 1 do
-    CheckEquals(msgBytes[i], FReceivedData[i]);
+    CheckEquals(msgBytes[i], FServerReceivedData[i]);
+
+  while FClientReceivedCommand = -1 do
+    Application.ProcessMessages;
+  CheckEquals(3, FClientReceivedCommand);
+  CheckEquals(Length(msgBytes), Length(FClientReceivedData));
+  for i := 0 to Length(msgBytes) - 1 do
+    CheckEquals(msgBytes[i], FClientReceivedData[i]);
 end;
 
 procedure TestTNamedPipeClient.TestInit;
@@ -172,13 +245,13 @@ var
   DefaultPipeName: string;
   DefaultServerName: string;
 begin
-  DefaultServerName:='.'; // localhost
-  DefaultPipeName:='f12312asdf';
+  DefaultServerName := '.'; // localhost
+  DefaultPipeName := 'f12312asdf';
   // TODO: Setup method call parameters
   TNamedPipeClient.SetDefaultValues(DefaultServerName, DefaultPipeName);
   // TODO: Validate method results
-  //CheckEquals(DefaultServerName, TNamedPipeClient.Instance.ServerName);
-  //CheckEquals(DefaultPipeName, TNamedPipeClient.Instance.PipeName);
+  // CheckEquals(DefaultServerName, TNamedPipeClient.Instance.ServerName);
+  // CheckEquals(DefaultPipeName, TNamedPipeClient.Instance.PipeName);
 end;
 
 procedure TestTNamedPipeClient.TestInstance;
@@ -187,7 +260,7 @@ var
 begin
   ReturnValue := TNamedPipeClient.Instance;
   // TODO: Validate method results
-  CheckNotNull(TNamedPipeClient.Instance);
+  CheckNotNull(ReturnValue);
 end;
 
 initialization
