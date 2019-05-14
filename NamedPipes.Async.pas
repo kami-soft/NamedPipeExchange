@@ -10,7 +10,7 @@ uses
   NamedPipes.Async.Classes;
 
 type
-  TReadPipeEvent = procedure(Sender: TObject; Command: Integer; Data: TStream) of object;
+  TReadPipeEvent = procedure(Sender: TObject; Pipe: HPIPE; Command: Integer; Data: TStream) of object;
 
   TNamedPipeClient = class(TObject)
   strict private
@@ -37,15 +37,65 @@ type
     procedure SetPipe(const ServerName, PipeName: string);
 
     function Connect: Boolean;
-    function WriteMessage(Stream: TStream): Boolean; overload;
-    function WriteMessage(const ABytes: TBytes): Boolean; overload;
-    function WriteMessage(const Msg: string): Boolean; overload;
+    function WriteMessage(Command: Integer; Stream: TStream): Boolean; overload;
+    function WriteMessage(Command: Integer; const ABytes: TBytes): Boolean; overload;
+    function WriteMessage(Command: Integer; const Msg: string): Boolean; overload;
 
-    class procedure Init(const DefaultServerName, DefaultPipeName: string);
+    class procedure SetDefaultValues(const DefaultServerName, DefaultPipeName: string);
     class function Instance: TNamedPipeClient;
 
     property ServerName: string read GetServerName;
     property PipeName: string read GetPipeName;
+    property OnRead: TReadPipeEvent read FOnRead write FOnRead;
+  end;
+
+  TClientInfo = record
+    Description: string;
+    Data: Pointer;
+  end;
+
+  TNamedPipeServer = class(TObject)
+  strict private
+    class var FInstance: TNamedPipeServer;
+
+    class destructor Destroy;
+  strict private
+    FServer: TPipeServer;
+    FServerReadData: TObjectDictionary<HPIPE, TInPacketStream>;
+    FClients: TDictionary<HPIPE, TClientInfo>;
+
+    FOnClientConnect: TOnPipeConnect;
+    FOnClientDisconnect: TOnPipeDisconnect;
+    FOnRead: TReadPipeEvent;
+
+    procedure OnPipeConnect(Sender: TObject; Pipe: HPIPE);
+    procedure OnPipeDisconnect(Sender: TObject; Pipe: HPIPE);
+    procedure OnReadFromPipe(Sender: TObject; Pipe: HPIPE; Stream: TStream);
+  private
+    function GetPipeName: string;
+    procedure SetPipeName(const Value: string);
+    function GetActive: Boolean;
+    procedure SetActive(const Value: Boolean);
+  public
+    constructor Create(const PipeName: string);
+    destructor Destroy; override;
+
+    class function Instance: TNamedPipeServer;
+
+    function WriteMessage(Client: HPIPE; Command: Integer; Stream: TStream): Boolean; overload;
+    function WriteMessage(Client: HPIPE; Command: Integer; const ABytes: TBytes): Boolean; overload;
+    function WriteMessage(Client: HPIPE; Command: Integer; const Msg: string): Boolean; overload;
+
+    function BroadcastMessage(Command: Integer; Stream: TStream): Boolean; overload;
+    function BroadcastMessage(Command: Integer; const ABytes: TBytes): Boolean; overload;
+    function BroadcastMessage(Command: Integer; const Msg: string): Boolean; overload;
+
+    property PipeName: string read GetPipeName write SetPipeName;
+    property Active: Boolean read GetActive write SetActive;
+    property Clients: TDictionary<HPIPE, TClientInfo> read FClients;
+
+    property OnClientConnect: TOnPipeConnect read FOnClientConnect write FOnClientConnect;
+    property OnClientDisconnect: TOnPipeDisconnect read FOnClientDisconnect write FOnClientDisconnect;
     property OnRead: TReadPipeEvent read FOnRead write FOnRead;
   end;
 
@@ -54,7 +104,10 @@ implementation
 uses
   System.StrUtils;
 
-{ TNamedPipeClient }
+const
+  cDefaultPipeName = 'TestPipe';
+
+  { TNamedPipeClient }
 
 function TNamedPipeClient.Connect: Boolean;
 begin
@@ -72,6 +125,7 @@ end;
 class constructor TNamedPipeClient.Create;
 begin
   FDefaultServerName := '.';
+  FDefaultPipeName := cDefaultPipeName;
 end;
 
 destructor TNamedPipeClient.Destroy;
@@ -93,10 +147,11 @@ end;
 
 class destructor TNamedPipeClient.Destroy;
 begin
+  FInstance.Free;
   FInstance := nil;
 end;
 
-class procedure TNamedPipeClient.Init(const DefaultServerName, DefaultPipeName: string);
+class procedure TNamedPipeClient.SetDefaultValues(const DefaultServerName, DefaultPipeName: string);
 begin
   FDefaultServerName := DefaultServerName;
   FDefaultPipeName := DefaultPipeName;
@@ -105,7 +160,7 @@ end;
 class function TNamedPipeClient.Instance: TNamedPipeClient;
 begin
   if not Assigned(FInstance) then
-    FInstance := TNamedPipeClient.Create(FDefaultServerName, FDefaultPipeName);
+    FInstance := Self.Create(FDefaultServerName, FDefaultPipeName);
   Result := FInstance;
 end;
 
@@ -135,7 +190,7 @@ begin
             FCurrentData := nil;
 
             if Assigned(FOnRead) then
-              FOnRead(Self, tmpStream.PacketHeader.Command, tmpStream);
+              FOnRead(Self, Pipe, tmpStream.PacketHeader.Command, tmpStream);
           finally
             FreeAndNil(tmpStream);
           end;
@@ -151,10 +206,11 @@ begin
   Connect;
 end;
 
-function TNamedPipeClient.WriteMessage(Stream: TStream): Boolean;
+function TNamedPipeClient.WriteMessage(Command: Integer; Stream: TStream): Boolean;
 var
   WriteStream: TOutPacketStream;
   Bytes: TBytes;
+  tmpHeader: TPacketHeader;
 begin
   Result := False;
 
@@ -166,6 +222,10 @@ begin
 
   WriteStream := TOutPacketStream.Create;
   try
+    tmpHeader := WriteStream.PacketHeader;
+    tmpHeader.Command := Command;
+    WriteStream.PacketHeader := tmpHeader;
+
     WriteStream.CopyFrom(Stream, 0);
     WriteStream.FillHeader;
 
@@ -177,10 +237,11 @@ begin
   end;
 end;
 
-function TNamedPipeClient.WriteMessage(const ABytes: TBytes): Boolean;
+function TNamedPipeClient.WriteMessage(Command: Integer; const ABytes: TBytes): Boolean;
 var
   WriteStream: TOutPacketStream;
   Bytes: TBytes;
+  tmpHeader: TPacketHeader;
 begin
   Result := False;
 
@@ -192,7 +253,12 @@ begin
 
   WriteStream := TOutPacketStream.Create;
   try
+    tmpHeader := WriteStream.PacketHeader;
+    tmpHeader.Command := Command;
+    WriteStream.PacketHeader := tmpHeader;
+
     WriteStream.Write(ABytes, 0, Length(ABytes));
+
     WriteStream.FillHeader;
 
     SetLength(Bytes, WriteStream.Size);
@@ -203,9 +269,254 @@ begin
   end;
 end;
 
-function TNamedPipeClient.WriteMessage(const Msg: string): Boolean;
+function TNamedPipeClient.WriteMessage(Command: Integer; const Msg: string): Boolean;
 begin
-  Result := WriteMessage(TEncoding.UTF8.GetBytes(Msg));
+  Result := WriteMessage(Command, TEncoding.UTF8.GetBytes(Msg));
+end;
+
+{ TNamedPipeServer }
+
+class destructor TNamedPipeServer.Destroy;
+begin
+  FInstance.Free;
+  FInstance := nil;
+end;
+
+destructor TNamedPipeServer.Destroy;
+begin
+  FServer.Free;
+  FServer := nil;
+
+  FServerReadData.Free;
+  FServerReadData := nil;
+
+  FClients.Free;
+  FClients := nil;
+end;
+
+function TNamedPipeServer.GetActive: Boolean;
+begin
+  Result := FServer.Active;
+end;
+
+function TNamedPipeServer.GetPipeName: string;
+begin
+  Result := FServer.PipeName;
+end;
+
+class function TNamedPipeServer.Instance: TNamedPipeServer;
+begin
+  if not Assigned(FInstance) then
+    FInstance := Self.Create(cDefaultPipeName);
+  Result := FInstance;
+end;
+
+procedure TNamedPipeServer.OnPipeConnect(Sender: TObject; Pipe: HPIPE);
+var
+  tmpInfo: TClientInfo;
+begin
+  tmpInfo.Description := '';
+  tmpInfo.Data := nil;
+
+  FClients.Add(Pipe, tmpInfo);
+  if Assigned(FOnClientConnect) then
+    FOnClientConnect(Self, Pipe);
+end;
+
+procedure TNamedPipeServer.OnPipeDisconnect(Sender: TObject; Pipe: HPIPE);
+begin
+  if Assigned(FOnClientDisconnect) then
+    FOnClientDisconnect(Self, Pipe);
+  FClients.Remove(Pipe);
+end;
+
+procedure TNamedPipeServer.OnReadFromPipe(Sender: TObject; Pipe: HPIPE; Stream: TStream);
+var
+  tmpStream: TInPacketStream;
+  CurrentData: TInPacketStream;
+  PipeBuf: TBytes;
+  ReadPos: Integer;
+begin
+  Stream.Seek(0, soBeginning);
+  SetLength(PipeBuf, Stream.Size);
+  Stream.Read(PipeBuf, 0, Stream.Size);
+
+  ReadPos := 0;
+
+  while ReadPos < Length(PipeBuf) do
+    begin
+      if not FServerReadData.ContainsKey(Pipe) then
+        FServerReadData.Add(Pipe, TInPacketStream.Create);
+      CurrentData := FServerReadData[Pipe];
+      ReadPos := ReadPos + CurrentData.Write(PipeBuf[ReadPos], Length(PipeBuf) - ReadPos);
+
+      if CurrentData.Complete then
+        begin
+          tmpStream := CurrentData;
+          try
+            FServerReadData.ExtractPair(Pipe);
+            tmpStream.Seek(0, soBeginning);
+
+            if Assigned(FOnRead) then
+              FOnRead(Self, Pipe, tmpStream.PacketHeader.Command, tmpStream);
+          finally
+            FreeAndNil(tmpStream);
+          end;
+        end;
+    end;
+end;
+
+procedure TNamedPipeServer.SetActive(const Value: Boolean);
+begin
+  FServer.Active := Value;
+end;
+
+procedure TNamedPipeServer.SetPipeName(const Value: string);
+begin
+  FServer.PipeName := Value;
+end;
+
+function TNamedPipeServer.WriteMessage(Client: HPIPE; Command: Integer; Stream: TStream): Boolean;
+var
+  WriteStream: TOutPacketStream;
+  Bytes: TBytes;
+  tmpHeader: TPacketHeader;
+begin
+  Result := False;
+
+  if not FClients.ContainsKey(Client) then
+    exit;
+
+  if Stream.Size = 0 then
+    exit;
+
+  WriteStream := TOutPacketStream.Create;
+  try
+    tmpHeader := WriteStream.PacketHeader;
+    tmpHeader.Command := Command;
+    WriteStream.PacketHeader := tmpHeader;
+
+    WriteStream.CopyFrom(Stream, 0);
+    WriteStream.FillHeader;
+
+    SetLength(Bytes, WriteStream.Size);
+    WriteStream.Read(Bytes, 0, WriteStream.Size);
+    Result := FServer.Write(Client, Bytes[0], Length(Bytes));
+  finally
+    WriteStream.Free;
+  end;
+end;
+
+function TNamedPipeServer.WriteMessage(Client: HPIPE; Command: Integer; const ABytes: TBytes): Boolean;
+var
+  WriteStream: TOutPacketStream;
+  Bytes: TBytes;
+  tmpHeader: TPacketHeader;
+begin
+  Result := False;
+
+  if not FClients.ContainsKey(Client) then
+    exit;
+
+  if Length(ABytes) = 0 then
+    exit;
+
+  WriteStream := TOutPacketStream.Create;
+  try
+    tmpHeader := WriteStream.PacketHeader;
+    tmpHeader.Command := Command;
+    WriteStream.PacketHeader := tmpHeader;
+
+    WriteStream.Write(ABytes, 0, Length(ABytes));
+
+    WriteStream.FillHeader;
+
+    SetLength(Bytes, WriteStream.Size);
+    WriteStream.Read(Bytes, 0, WriteStream.Size);
+    Result := FServer.Write(Client, Bytes[0], Length(Bytes));
+  finally
+    WriteStream.Free;
+  end;
+end;
+
+function TNamedPipeServer.WriteMessage(Client: HPIPE; Command: Integer; const Msg: string): Boolean;
+begin
+  Result := WriteMessage(Client, Command, TEncoding.UTF8.GetBytes(Msg));
+end;
+
+function TNamedPipeServer.BroadcastMessage(Command: Integer; Stream: TStream): Boolean;
+var
+  WriteStream: TOutPacketStream;
+  Bytes: TBytes;
+  tmpHeader: TPacketHeader;
+begin
+  Result := False;
+
+  if Stream.Size = 0 then
+    exit;
+
+  WriteStream := TOutPacketStream.Create;
+  try
+    tmpHeader := WriteStream.PacketHeader;
+    tmpHeader.Command := Command;
+    WriteStream.PacketHeader := tmpHeader;
+
+    WriteStream.CopyFrom(Stream, 0);
+    WriteStream.FillHeader;
+
+    SetLength(Bytes, WriteStream.Size);
+    WriteStream.Read(Bytes, 0, WriteStream.Size);
+    Result := FServer.Broadcast(Bytes[0], Length(Bytes));
+  finally
+    WriteStream.Free;
+  end;
+end;
+
+function TNamedPipeServer.BroadcastMessage(Command: Integer; const ABytes: TBytes): Boolean;
+var
+  WriteStream: TOutPacketStream;
+  Bytes: TBytes;
+  tmpHeader: TPacketHeader;
+begin
+  Result := False;
+
+  if Length(ABytes) = 0 then
+    exit;
+
+  WriteStream := TOutPacketStream.Create;
+  try
+    tmpHeader := WriteStream.PacketHeader;
+    tmpHeader.Command := Command;
+    WriteStream.PacketHeader := tmpHeader;
+
+    WriteStream.Write(ABytes, 0, Length(ABytes));
+
+    WriteStream.FillHeader;
+
+    SetLength(Bytes, WriteStream.Size);
+    WriteStream.Read(Bytes, 0, WriteStream.Size);
+    Result := FServer.Broadcast(Bytes[0], Length(Bytes));
+  finally
+    WriteStream.Free;
+  end;
+end;
+
+function TNamedPipeServer.BroadcastMessage(Command: Integer; const Msg: string): Boolean;
+begin
+  Result := BroadcastMessage(Command, TEncoding.UTF8.GetBytes(Msg));
+end;
+
+constructor TNamedPipeServer.Create(const PipeName: string);
+begin
+  inherited Create;
+  FServerReadData := TObjectDictionary<HPIPE, TInPacketStream>.Create([doOwnsValues]);
+  FClients := TDictionary<HPIPE, TClientInfo>.Create;
+
+  FServer := TPipeServer.Create(nil);
+  FServer.PipeName := PipeName;
+  FServer.OnPipeConnect := OnPipeConnect;
+  FServer.OnPipeDisconnect := OnPipeDisconnect;
+  FServer.OnPipeMessage := OnReadFromPipe;
 end;
 
 end.

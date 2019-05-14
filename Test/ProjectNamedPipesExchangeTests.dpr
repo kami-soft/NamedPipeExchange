@@ -21,9 +21,9 @@ uses
   madListProcesses,
   madListModules,
   DUnitTestRunner,
-  TestuNamedPipesExchange in 'TestuNamedPipesExchange.pas',
+  TestSyncNamedPipes in 'TestSyncNamedPipes.pas',
   uNamedPipesExchange in '..\uNamedPipesExchange.pas',
-  TestNamedPipes in 'TestNamedPipes.pas',
+  TestAsyncNamedPipes in 'TestAsyncNamedPipes.pas',
   NamedPipes.Async in '..\NamedPipes.Async.pas';
 
 { R *.RES }

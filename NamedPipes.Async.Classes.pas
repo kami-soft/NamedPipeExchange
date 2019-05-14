@@ -323,16 +323,6 @@ procedure Register;
 
 implementation
 
-{
-  // Pipe write helper functions
-  function AllocPipeWrite(const Buffer; Count: Integer): PPipeWrite;
-  procedure DisposePipeWrite(PipeWrite: PPipeWrite);
-  procedure CheckPipeName(Value: String);
-
-  // Security helper functions
-  procedure InitializeSecurity(var SA: TSecurityAttributes);
-  procedure FinalizeSecurity(var SA: TSecurityAttributes); }
-
 /// /////////////////////////////////////////////////////////////////////////////
 //
 // Utility functions
@@ -518,6 +508,9 @@ begin
         tmp := FWorker;
         FWorker := nil;
         tmp.FreeOnTerminate := False;
+        while not tmp.Started do
+          Sleep(0);
+
         tmp.Terminate;
         // Signal the kill event
         SetEvent(FKillEv);

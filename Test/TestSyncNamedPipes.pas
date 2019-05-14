@@ -1,4 +1,4 @@
-unit TestuNamedPipesExchange;
+unit TestSyncNamedPipes;
 {
 
   Delphi DUnit Test Case

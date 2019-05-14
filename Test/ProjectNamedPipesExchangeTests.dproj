@@ -84,9 +84,9 @@
         <DelphiCompile Include="$(MainSource)">
             <MainSource>MainSource</MainSource>
         </DelphiCompile>
-        <DCCReference Include="TestuNamedPipesExchange.pas"/>
+        <DCCReference Include="TestSyncNamedPipes.pas"/>
         <DCCReference Include="..\uNamedPipesExchange.pas"/>
-        <DCCReference Include="TestNamedPipes.pas"/>
+        <DCCReference Include="TestAsyncNamedPipes.pas"/>
         <DCCReference Include="..\NamedPipes.Async.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
@@ -130,13 +130,13 @@
                         <Overwrite>true</Overwrite>
                     </Platform>
                 </DeployFile>
+                <DeployFile LocalName="Win32\Debug\ProjectNamedPipesExchangeTests.exe" Configuration="Debug" Class="ProjectOutput"/>
                 <DeployFile LocalName="Win32\Debug\ProjectNamedPipesExchangeTests.exe" Configuration="Debug" Class="ProjectOutput">
                     <Platform Name="Win32">
                         <RemoteName>ProjectNamedPipesExchangeTests.exe</RemoteName>
                         <Overwrite>true</Overwrite>
                     </Platform>
                 </DeployFile>
-                <DeployFile LocalName="Win32\Debug\ProjectNamedPipesExchangeTests.exe" Configuration="Debug" Class="ProjectOutput"/>
                 <DeployClass Name="AdditionalDebugSymbols">
                     <Platform Name="iOSSimulator">
                         <Operation>1</Operation>
