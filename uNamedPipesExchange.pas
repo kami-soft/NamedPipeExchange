@@ -23,6 +23,7 @@ uses
   System.Classes,
   System.SysUtils,
   System.Generics.Collections,
+  System.SyncObjs,
   FWIOCompletionPipes;
 
 type
@@ -72,7 +73,19 @@ type
     property IsSended: Boolean read GetIsSended;
   end;
 
-  TPipeDataDictionary = class(TObjectDictionary<THandle, TAbstractPipeData>)
+  TPipeDataDictionary<T: TAbstractPipeData>  = class(TObjectDictionary<THandle, T>)
+  strict private
+    FMREWS: TMultiReadExclusiveWriteSynchronizer;
+  public
+    constructor Create(Ownerships: TDictionaryOwnerships);
+    destructor Destroy; override;
+
+    procedure BeginRead;
+    procedure EndRead;
+    procedure BeginWrite;
+    procedure EndWrite;
+
+    procedure RemoveTS(AKey: THandle);
   end;
 
   TPipeServer = class(TObject)
@@ -83,8 +96,8 @@ type
     FOnDisconnect: TConnectEvent;
     FOnIdle: TNotifyEvent;
 
-    FOutgoingDataDict: TPipeDataDictionary;
-    FIncommingDataDict: TPipeDataDictionary;
+    FOutgoingDataDict: TPipeDataDictionary<TSendingPipeData>;
+    FIncommingDataDict: TPipeDataDictionary<TReceivingPipeData>;
 
     function GetActive: Boolean;
     procedure SetActive(const Value: Boolean);
@@ -109,6 +122,9 @@ type
     FClient: TFWPipeClient;
     FOnConnected: TNotifyEvent;
     FOnDisconnected: TNotifyEvent;
+
+    FCS: TCriticalSection;
+
     function GetActive: Boolean;
     procedure SetActive(const Value: Boolean);
 
@@ -164,8 +180,8 @@ end;
 constructor TPipeServer.Create(const PipeName: string);
 begin
   inherited Create;
-  FOutgoingDataDict := TPipeDataDictionary.Create([doOwnsValues]);
-  FIncommingDataDict := TPipeDataDictionary.Create([doOwnsValues]);
+  FOutgoingDataDict := TPipeDataDictionary<TSendingPipeData>.Create([doOwnsValues]);
+  FIncommingDataDict := TPipeDataDictionary<TReceivingPipeData>.Create([doOwnsValues]);
   FServer := TFWPipeServer.Create(PipeName);
   FServer.OnConnect := InternalConnect;
   FServer.OnDisconnect := InternalDisconnect;
@@ -194,7 +210,7 @@ end;
 
 procedure TPipeServer.InternalDisconnect(Sender: TObject; PipeHandle: PFWPipeData);
 begin
-  FOutgoingDataDict.Remove(PipeHandle.PipeHandle);
+  FOutgoingDataDict.RemoveTS(PipeHandle.PipeHandle);
   if Assigned(FOnDisconnect) then
     FOnDisconnect(Self, PipeHandle.PipeHandle);
 end;
@@ -206,34 +222,41 @@ begin
 end;
 
 procedure TPipeServer.InternalRead(Sender: TObject; PipeHandle: PFWPipeData);
-  procedure WriteDataToPipe(PipeHandle: PFWPipeData; var DataBuff: TBytes; OutgoingData: TAbstractPipeData);
+  procedure WriteDataToPipe(PipeHandle: PFWPipeData; var DataBuff: TBytes; OutgoingData: TSendingPipeData);
   begin
     SetLength(DataBuff, 0);
-    TSendingPipeData(OutgoingData).ReadData(DataBuff, Length(PipeHandle.WriteBuff));
+    OutgoingData.ReadData(DataBuff, Length(PipeHandle.WriteBuff));
     PipeHandle.WriteBuffSize := Length(DataBuff);
     Move(DataBuff[0], PipeHandle.WriteBuff[0], PipeHandle.WriteBuffSize);
-    if TSendingPipeData(OutgoingData).IsSended then
-      FOutgoingDataDict.Remove(PipeHandle.PipeHandle);
+    if OutgoingData.IsSended then
+      FOutgoingDataDict.RemoveTS(PipeHandle.PipeHandle);
   end;
 
 var
-  IncommingData: TAbstractPipeData;
-  OutgoingData: TAbstractPipeData;
+  IncommingData: TReceivingPipeData;
+  OutgoingData: TSendingPipeData;
   DataBuff: TBytes;
 begin
-  if not FIncommingDataDict.TryGetValue(PipeHandle.PipeHandle, IncommingData) then
+  FIncommingDataDict.BeginWrite; // I dont think that this method can be fired
+  // from different threads with same PipeHandle, but who knows... :)
+  // so I decide to use single write lock instead of read and inner write lock.
+  try
+    if not FIncommingDataDict.TryGetValue(PipeHandle.PipeHandle, IncommingData) then
     begin
       IncommingData := TReceivingPipeData.Create;
       FIncommingDataDict.Add(PipeHandle.PipeHandle, IncommingData);
     end;
-  if TReceivingPipeData(IncommingData).IsReceived then
-    raise Exception.Create('Previous incomming data is active');
+  finally
+    FIncommingDataDict.EndWrite;
+  end;
+  if IncommingData.IsReceived then
+    raise EPipeServerException.Create('Previous incomming data is active');
 
   SetLength(DataBuff, PipeHandle.ReadBuffSize);
   Move(PipeHandle.ReadBuff[0], DataBuff[0], PipeHandle.ReadBuffSize);
-  TReceivingPipeData(IncommingData).WriteData(DataBuff);
+  IncommingData.WriteData(DataBuff);
 
-  if TReceivingPipeData(IncommingData).IsReceived then
+  if IncommingData.IsReceived then
     try
       IncommingData.DataStream.Seek(0, soBeginning);
       case IncommingData.Header.Command of
@@ -241,28 +264,38 @@ begin
           ;
         pcNewData:
           begin
-            if FOutgoingDataDict.ContainsKey(PipeHandle.PipeHandle) then
-              raise EPipeServerException.Create('try get new data without receiving current');
+            FOutgoingDataDict.BeginWrite;
+            try
+              if FOutgoingDataDict.ContainsKey(PipeHandle.PipeHandle) then
+                raise EPipeServerException.Create('try get new data without receiving current');
 
-            OutgoingData := TSendingPipeData.Create;
-            FOutgoingDataDict.Add(PipeHandle.PipeHandle, OutgoingData);
+              OutgoingData := TSendingPipeData.Create;
+              FOutgoingDataDict.Add(PipeHandle.PipeHandle, OutgoingData);
+            finally
+              FOutgoingDataDict.EndWrite;
+            end;
             if Assigned(FOnReadFromPipe) then
               FOnReadFromPipe(Self, PipeHandle.PipeHandle, IncommingData.DataStream, OutgoingData.DataStream);
 
-            TSendingPipeData(OutgoingData).PrepareForSend(pcNewData);
+            OutgoingData.PrepareForSend(pcNewData);
 
             WriteDataToPipe(PipeHandle, DataBuff, OutgoingData);
           end;
         pcNextDataPart:
           begin
-            if not FOutgoingDataDict.TryGetValue(PipeHandle.PipeHandle, OutgoingData) then
-              raise EPipeServerException.Create('Trying get unexisting outgoing data part');
+            FOutgoingDataDict.BeginRead;
+            try
+              if not FOutgoingDataDict.TryGetValue(PipeHandle.PipeHandle, OutgoingData) then
+                raise EPipeServerException.Create('Trying get unexisting outgoing data part');
+            finally
+              FOutgoingDataDict.EndRead;
+            end;
 
             WriteDataToPipe(PipeHandle, DataBuff, OutgoingData);
           end;
       end;
     finally
-      FIncommingDataDict.Remove(PipeHandle.PipeHandle);
+      FIncommingDataDict.RemoveTS(PipeHandle.PipeHandle);
     end
   else
     PipeHandle.WriteBuffSize := 0;
@@ -289,10 +322,10 @@ begin
 
   iPos := 0;
   if Header.Command = pcUnknown then
-    begin
-      Header.ReadFromBuf(Buf);
-      iPos := SizeOf(TPipeDataHeader);
-    end;
+  begin
+    Header.ReadFromBuf(Buf);
+    iPos := SizeOf(TPipeDataHeader);
+  end;
 
   if Length(Buf) > iPos then
     DataStream.Write(Buf[iPos], Length(Buf) - iPos);
@@ -337,20 +370,20 @@ var
   iBufSize: integer;
 begin
   if not FIsHeaderSended then
-    begin
-      iBufSize := Min(MaxBufSize, DataStream.Size + SizeOf(TPipeDataHeader));
-      SetLength(Buf, iBufSize);
-      iPos := SizeOf(TPipeDataHeader);
-      FHeader.WriteToBuf(Buf);
-      FIsHeaderSended := True;
-      DataStream.Seek(0, soBeginning);
-    end
+  begin
+    iBufSize := Min(MaxBufSize, DataStream.Size + SizeOf(TPipeDataHeader));
+    SetLength(Buf, iBufSize);
+    iPos := SizeOf(TPipeDataHeader);
+    FHeader.WriteToBuf(Buf);
+    FIsHeaderSended := True;
+    DataStream.Seek(0, soBeginning);
+  end
   else
-    begin
-      iBufSize := Min(MaxBufSize, DataStream.Size - DataStream.Position);
-      SetLength(Buf, iBufSize);
-      iPos := 0;
-    end;
+  begin
+    iBufSize := Min(MaxBufSize, DataStream.Size - DataStream.Position);
+    SetLength(Buf, iBufSize);
+    iPos := 0;
+  end;
   Result := iBufSize;
 
   iBufSize := iBufSize - iPos;
@@ -366,11 +399,14 @@ begin
   FClient := TFWPipeClient.Create(ServerName, PipeName);
   FClient.OnConnect := intOnConnected;
   FClient.OnDisconnect := intOnDisconnected;
+
+  FCS := TCriticalSection.Create;
 end;
 
 destructor TPipeClient.Destroy;
 begin
   FreeAndNil(FClient);
+  FreeAndNil(FCS);
   inherited;
 end;
 
@@ -408,16 +444,16 @@ procedure TPipeClient.SendData(SendStream, ReceiveStream: TStream);
       try
         FClient.SendData(OutStream, InStream);
         if SendPipeData.IsSended then
-          begin
-            InStream.Position := 0;
-            SetLength(Buf, InStream.Size);
-            InStream.Read(Buf[0], Length(Buf));
+        begin
+          InStream.Position := 0;
+          SetLength(Buf, InStream.Size);
+          InStream.Read(Buf[0], Length(Buf));
 
-            ReceivePipeData.WriteData(Buf);
-          end
+          ReceivePipeData.WriteData(Buf);
+        end
         else
           if InStream.Size <> 0 then
-            raise EPipeServerException.Create('Server send some data without complete receiving');
+          raise EPipeServerException.Create('Server send some data without complete receiving');
       finally
         InStream.Free;
       end;
@@ -430,20 +466,22 @@ var
   SendPipeData: TSendingPipeData;
   ReceivePipeData: TReceivingPipeData;
 begin
-  ReceivePipeData := TReceivingPipeData.Create;
+  FCS.Enter;
   try
-    SendPipeData := TSendingPipeData.Create;
+    ReceivePipeData := TReceivingPipeData.Create;
     try
-      SendPipeData.DataStream.CopyFrom(SendStream, 0);
-      SendPipeData.PrepareForSend(pcNewData);
+      SendPipeData := TSendingPipeData.Create;
+      try
+        SendPipeData.DataStream.CopyFrom(SendStream, 0);
+        SendPipeData.PrepareForSend(pcNewData);
 
-      while not SendPipeData.IsSended do
-        SendDataPart(SendPipeData, ReceivePipeData);
-    finally
-      SendPipeData.Free;
-    end;
+        while not SendPipeData.IsSended do
+          SendDataPart(SendPipeData, ReceivePipeData);
+      finally
+        SendPipeData.Free;
+      end;
 
-    while not ReceivePipeData.IsReceived do
+      while not ReceivePipeData.IsReceived do
       begin
         SendPipeData := TSendingPipeData.Create;
         try
@@ -455,16 +493,64 @@ begin
         end;
       end;
 
-    ReceiveStream.Size := 0;
-    ReceiveStream.CopyFrom(ReceivePipeData.DataStream, 0);
+      ReceiveStream.Size := 0;
+      ReceiveStream.CopyFrom(ReceivePipeData.DataStream, 0);
+    finally
+      ReceivePipeData.Free;
+    end;
   finally
-    ReceivePipeData.Free;
+    FCS.Leave;
   end;
 end;
 
 procedure TPipeClient.SetActive(const Value: Boolean);
 begin
   FClient.Active := Value;
+end;
+
+{ TPipeDataDictionary }
+
+procedure TPipeDataDictionary<T>.BeginRead;
+begin
+  FMREWS.BeginRead;
+end;
+
+procedure TPipeDataDictionary<T>.BeginWrite;
+begin
+  if not FMREWS.BeginWrite then
+    RaiseLastOSError;
+end;
+
+constructor TPipeDataDictionary<T>.Create(Ownerships: TDictionaryOwnerships);
+begin
+  inherited Create(Ownerships);
+  FMREWS := TMultiReadExclusiveWriteSynchronizer.Create;
+end;
+
+destructor TPipeDataDictionary<T>.Destroy;
+begin
+  FreeAndNil(FMREWS);
+  inherited;
+end;
+
+procedure TPipeDataDictionary<T>.EndRead;
+begin
+  FMREWS.EndRead;
+end;
+
+procedure TPipeDataDictionary<T>.EndWrite;
+begin
+  FMREWS.EndWrite;
+end;
+
+procedure TPipeDataDictionary<T>.RemoveTS(AKey: THandle);
+begin
+  BeginWrite;
+  try
+    Remove(AKey);
+  finally
+    EndWrite;
+  end;
 end;
 
 end.

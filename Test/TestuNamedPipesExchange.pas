@@ -33,7 +33,7 @@ type
 
   TestTIncommingPipeData = class(TTestCase)
   strict private
-    FIncommingPipeData: TIncommingPipeData;
+    FIncommingPipeData: TReceivingPipeData;
   public
     procedure SetUp; override;
     procedure TearDown; override;
@@ -46,7 +46,7 @@ type
 
   TestTOutgoingPipeData = class(TTestCase)
   strict private
-    FOutgoingPipeData: TOutgoingPipeData;
+    FOutgoingPipeData: TSendingPipeData;
   public
     procedure SetUp; override;
     procedure TearDown; override;
@@ -98,7 +98,7 @@ end;
 
 procedure TestTIncommingPipeData.SetUp;
 begin
-  FIncommingPipeData := TIncommingPipeData.Create;
+  FIncommingPipeData := TReceivingPipeData.Create;
 end;
 
 procedure TestTIncommingPipeData.TearDown;
@@ -111,16 +111,16 @@ procedure TestTIncommingPipeData.TestWriteData;
 var
   Buf: TBytes;
 
-  OutData: TOutgoingPipeData;
+  OutData: TSendingPipeData;
 begin
   // TODO: Setup method call parameters
 
-  OutData := TOutgoingPipeData.Create;
+  OutData := TSendingPipeData.Create;
   try
     SetLength(Buf, 20);
     FillChar(Buf[0], Length(Buf), $FF);
     OutData.DataStream.Write(Buf, Length(Buf));
-    OutData.PrepareForOutgoing(pcNewData);
+    OutData.PrepareForSend(pcNewData);
 
     SetLength(Buf, 0);
     OutData.ReadData(Buf, MaxBuffSize);
@@ -139,14 +139,14 @@ end;
 procedure TestTIncommingPipeData.TestWriteData2;
 var
   Buf: TBytes;
-  OutData: TOutgoingPipeData;
+  OutData: TSendingPipeData;
 begin
-  OutData := TOutgoingPipeData.Create;
+  OutData := TSendingPipeData.Create;
   try
     SetLength(Buf, MaxBuffSize * 2);
     FillChar(Buf[0], Length(Buf), $FF);
     OutData.DataStream.Write(Buf, Length(Buf));
-    OutData.PrepareForOutgoing(pcNewData);
+    OutData.PrepareForSend(pcNewData);
 
     SetLength(Buf, 0);
     OutData.ReadData(Buf, MaxBuffSize);
@@ -164,14 +164,14 @@ end;
 procedure TestTIncommingPipeData.TestWriteData3;
 var
   Buf: TBytes;
-  OutData: TOutgoingPipeData;
+  OutData: TSendingPipeData;
 begin
-  OutData := TOutgoingPipeData.Create;
+  OutData := TSendingPipeData.Create;
   try
     SetLength(Buf, MaxBuffSize * 5);
     FillChar(Buf[0], Length(Buf), $FF);
     OutData.DataStream.Write(Buf, Length(Buf));
-    OutData.PrepareForOutgoing(pcNewData);
+    OutData.PrepareForSend(pcNewData);
 
     while not OutData.IsSended do
       begin
@@ -191,7 +191,7 @@ end;
 
 procedure TestTOutgoingPipeData.SetUp;
 begin
-  FOutgoingPipeData := TOutgoingPipeData.Create;
+  FOutgoingPipeData := TSendingPipeData.Create;
 end;
 
 procedure TestTOutgoingPipeData.TearDown;
@@ -206,7 +206,7 @@ var
 begin
   // TODO: Setup method call parameters
   AHeaderCommand := pcNewData;
-  FOutgoingPipeData.PrepareForOutgoing(AHeaderCommand);
+  FOutgoingPipeData.PrepareForSend(AHeaderCommand);
   CheckTrue(FOutgoingPipeData.Header.Command = AHeaderCommand);
   CheckEquals(FOutgoingPipeData.DataStream.Size, FOutgoingPipeData.Header.DataSize);
   CheckEquals(0, FOutgoingPipeData.DataStream.Size);
@@ -214,7 +214,7 @@ begin
   // TODO: Validate method results
 
   FOutgoingPipeData.DataStream.Size := 100;
-  FOutgoingPipeData.PrepareForOutgoing(AHeaderCommand);
+  FOutgoingPipeData.PrepareForSend(AHeaderCommand);
   CheckEquals(FOutgoingPipeData.DataStream.Size, FOutgoingPipeData.Header.DataSize);
   CheckEquals(100, FOutgoingPipeData.DataStream.Size);
   CheckFalse(FOutgoingPipeData.IsSended);
@@ -222,7 +222,7 @@ end;
 
 procedure TestTPipeDataDictionary.SetUp;
 begin
-  FPipeDataDictionary := TPipeDataDictionary.Create;
+  FPipeDataDictionary := TPipeDataDictionary.Create([doOwnsValues]);
 end;
 
 procedure TestTPipeDataDictionary.TearDown;
@@ -259,7 +259,7 @@ var
   SendStream: TStream;
 begin
   // TODO: Setup method call parameters
-  FPipeClient.SendData(SendStream, ReceiveStream);
+  //FPipeClient.SendData(SendStream, ReceiveStream);
   // TODO: Validate method results
 end;
 
