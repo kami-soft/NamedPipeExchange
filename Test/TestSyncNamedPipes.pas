@@ -222,7 +222,7 @@ end;
 
 procedure TestTPipeDataDictionary.SetUp;
 begin
-  FPipeDataDictionary := TPipeDataDictionary.Create;
+  FPipeDataDictionary := TPipeDataDictionary.Create([doOwnsValues]);
 end;
 
 procedure TestTPipeDataDictionary.TearDown;
@@ -259,7 +259,7 @@ var
   SendStream: TStream;
 begin
   // TODO: Setup method call parameters
-  FPipeClient.SendData(SendStream, ReceiveStream);
+  //FPipeClient.SendData(SendStream, ReceiveStream);
   // TODO: Validate method results
 end;
 
